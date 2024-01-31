@@ -1,0 +1,186 @@
+---
+title: ""
+author: "Yekta Amirkhalili"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    number_section: true
+    fig_crop: false
+    highlight: tango
+
+fontsize: 11pt
+geometry: margin = 1in
+urlcolor: blue
+documentclass: article
+---
+\newpage 
+
+```{r envSetup, include = FALSE, echo = FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    message = FALSE,
+    warning = FALSE,
+    out.width = "70%",
+    fig.align = "center",
+    comment = ">",
+    tidy.opts = list(width.cutoff = 50),
+    tidy = TRUE
+    )
+```
+
+```{r}
+#library(tidyverse)
+library(corrr)
+library(psych)
+library(lavaan)
+#library(kableExtra)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(survey)
+library(haven)
+library(rempsyc)
+library(broom)
+library(report)
+library(effectsize)
+library(aod)
+library(readr)
+library(tidymodels)
+library(stargazer)
+library(forcats)
+library(ggcorrplot)
+library(caret)
+library(knitr)
+library(ROCR)
+library(jtools)
+library(foreign)
+#=library(car)
+library(xtable)
+#library(texreg)
+#library(svyVGAM)
+library(glmnet)
+library(ggpubr)
+library(formatR)
+```
+
+
+## Load & Understand Data 
+The `library(foreign)` command is used to read `.sav` data files ([reference](https://help.displayr.com/hc/en-us/articles/360003582155-How-to-Import-SPSS-Data-Sets-Using-R)). 
+```{r}
+data <- suppressWarnings(read.spss(
+    'P632_DA1_Data_W24.sav',
+    use.value.labels = TRUE,
+    to.data.frame = TRUE
+))
+```
+
+```{r}
+glimpse(data)
+```
+### Screen 
+```{r}
+#remove couple 15 and 29 
+#log transform incompatibiliy
+
+sc_data <- data %>% 
+    filter(id != 15 & id != 29) %>% 
+    mutate(
+        #making sure nothing is 0 (for log transform)
+        incompat = if_else(
+            incompat == 0,
+            0.001,
+            incompat
+        ),
+        
+        log_incompat = log(incompat)
+    )
+    
+```
+
+```{r}
+glimpse(sc_data)
+```
+
+### correlation matrix 
+```{r}
+cmatP <- cor(
+    sc_data %>% select(therapy, log_incompat, fights, breakup),
+    method = c("pearson")
+)
+
+stargazer(cmatP)
+```
+```{r}
+cmatS <- cor(
+    sc_data %>% select(therapy, log_incompat, fights, breakup),
+    method = c("spearman")
+)
+
+stargazer(cmatS)
+```
+```{r fig.height=6, fig.width=7, fig.align='center'}
+sd_01 <- sc_data %>% 
+    mutate(
+        breakup_risk = case_when(
+            breakup <= 2 ~ '<= 2', 
+            breakup > 2 & breakup < 4 ~ '2 <  < 4',
+            breakup >= 4 ~ '>= 4',
+            .default = '>= 4'
+        )
+    )
+
+ggplot(data = sd_01, aes(x = therapy, y = breakup)) +
+    geom_point(size = 5) + 
+    ylab("Breakup Risk") +
+    xlab("Counseling") + 
+    theme(plot.title = element_text(size = 12, hjust = 0.5)) + 
+    geom_smooth(method = "lm", se = T)
+    
+```
+
+### Pearson correlation 
+
+```{r}
+cor(sc_data$therapy, sc_data$breakup, method = "pearson")
+```
+
+### Bivariate Regression 
+```{r}
+lm_1 <- lm(
+    breakup ~ therapy, 
+    data = sc_data
+)
+
+stargazer(lm_1)
+```
+
+```{r}
+summary(lm_1)
+```
+
+```{r}
+#model change 
+
+lm_2 <- lm(
+    breakup ~ therapy + 0, 
+    data = sc_data
+)
+
+stargazer(lm_2)
+```
+```{r}
+summary(lm_2)
+```
+
+
+
+
+
+
+
+
+
+

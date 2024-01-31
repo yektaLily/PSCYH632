@@ -1,0 +1,594 @@
+---
+title: "PSYCH 632 - DA1"
+author: "Yekta Amirkhalili"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    number_section: true
+    fig_crop: false
+    highlight: tango
+
+fontsize: 11pt
+geometry: margin = 1in
+urlcolor: blue
+documentclass: article
+---
+\newpage 
+
+```{r envSetup, include = FALSE, echo = FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    message = FALSE,
+    warning = FALSE,
+    out.width = "70%",
+    fig.align = "center",
+    comment = ">",
+    tidy.opts = list(width.cutoff = 50),
+    tidy = TRUE
+    )
+```
+
+```{r}
+#library(tidyverse)
+library(corrr)
+library(psych)
+library(lavaan)
+#library(kableExtra)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(survey)
+library(haven)
+library(rempsyc)
+library(broom)
+library(report)
+library(effectsize)
+library(aod)
+library(readr)
+library(tidymodels)
+library(stargazer)
+library(forcats)
+library(ggcorrplot)
+library(caret)
+library(knitr)
+library(ROCR)
+library(jtools)
+library(foreign)
+#=library(car)
+library(xtable)
+#library(texreg)
+#library(svyVGAM)
+library(glmnet)
+library(ggpubr)
+library(formatR)
+```
+
+
+# Assessing Couples’ Break-Up Risk (Data Screening)
+The following is taken from the submitted project description. A clinical psychologist is studying the effectiveness of therapy in reducing couples’ break-up risk. She collects data from **30 couples** on four measures:
+\begin{enumerate}
+    \item Counselling: number of hours of marriage counselling the couple has completed
+    \item Incompatibilities: the couple’s areas of incompatibility or disagreement (out of 150 listed)
+    \item Arguments: the couple’s number of arguments in the past week
+    \item Break-up risk: clinician-rated risk of couple’s break-up from 0 (very low) to 5 (very high) 
+\end{enumerate}
+\\
+Please submit the first part of a Results section (only) in APA style describing how you screened the dataset. 
+Check for: (1) non-normal distributions that may (or may not) require transformation, (2) univariate outliers, and (3) multivariate outliers.
+Include a table with descriptive information about each variable (N, mean, SD, skew, kurtosis) after screening, as well as a second supplemental table with the same information prior to screening. (Researchers are increasingly using online supplements to report alternate analyses.) No correlations table is needed. If at least one requires correction (e.g., transformation, winsorizing or deleting outliers), include a figure with its distribution before screening and after screening (see sample figure below). Please upload your write-up and analysis file (SPSS .spv output file or R script) to LEARN.
+
+## Load & Understand Data 
+The `library(foreign)` command is used to read `.sav` data files ([reference](https://help.displayr.com/hc/en-us/articles/360003582155-How-to-Import-SPSS-Data-Sets-Using-R)). 
+```{r}
+data <- suppressWarnings(read.spss(
+    'P632_DA1_Data_W24.sav',
+    use.value.labels = TRUE,
+    to.data.frame = TRUE
+))
+```
+
+Look at the data: 
+```{r}
+glimpse(data)
+```
+```{r include=FALSE, echo=FALSE, eval=FALSE}
+head(data)
+```
+It's a good idea to do some visualizations, so I will visualize number of therapy sessions and fights. 
+
+```{r fig.height=6, fig.width=7, fig.align='center'}
+ggplot(data = data, aes(x = therapy, y = fights)) +
+    geom_point() + 
+    ylab("Number of Fights") +
+    xlab("Number of Therapy Sessions") + 
+    theme(plot.title = element_text(size = 12, hjust = 0.5)) + 
+    ggtitle("Number of Therapy Sessions vs Number of Fights")
+    
+```
+I want to add a "breakup chance" to the data to categorize them. I'll break the risk to low - medium - high. First, I'll make a copy of the data. 
+```{r echo=FALSE}
+data01 <- data
+```
+
+```{r}
+data01 <- data01 %>% 
+    mutate(
+        breakup_risk = case_when(
+            breakup <= 2 ~ 'low', #less than 2 is a low breakup chance 
+            breakup > 2 & breakup < 4 ~ 'medium',
+            breakup >= 4 ~ 'high',
+            .default = 'high'
+        )
+    )
+
+print(data01 %>% count(breakup_risk))
+```
+
+And now I will visualize the data based on the breakup chances: 
+
+```{r fig.height=6, fig.width=7, fig.align='center'}
+ggplot(data = data01, aes(x = therapy, y = fights, color = breakup_risk)) +
+    geom_point(size = 5) + 
+    ylab("Number of Fights") +
+    xlab("Number of Therapy Sessions") + 
+    theme(plot.title = element_text(size = 12, hjust = 0.5)) + 
+    ggtitle("Number of Therapy Sessions vs Number of Fights")
+    
+```
+
+It seems that there is 1 couple who's done **No Therapy Sessions** who have a high number of fights too who have a high risk of breakup. 
+
+## Descriptive Statistics 
+Distributions (Frequency table or histogram) – Mean, median, mode – Standard deviation, variance, Skewness, Kurtosis *This is before making any changes*.
+```{r}
+dscStat <- describe(data %>% select(-c(id)), type = 2) %>% 
+    select(c(n, mean, sd, median, min, max, skew, kurtosis, se))
+```
+
+```{r eval = F, echo = F}
+dscStat
+```
+
+```{r echo = F, eval = F}
+latex_code <- xtable(as.data.frame(dscStat), caption = "Summary Statistics", label = "sum_stat")
+print(latex_code, include.rownames = TRUE)
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrrrrrrr}
+  \hline
+ & n & mean & sd & median & min & max & skew & kurtosis & se \\ 
+  \hline
+therapy & 30.00 & 5.11 & 2.07 & 4.89 & 0.00 & 9.79 & 0.18 & 0.60 & 0.38 \\ 
+  incompat & 30.00 & 27.80 & 29.86 & 21.00 & 6.00 & 144.00 & 3.19 & 10.31 & 5.45 \\ 
+  fights & 30.00 & 3.00 & 2.52 & 2.00 & 0.00 & 12.00 & 1.84 & 4.76 & 0.46 \\ 
+  breakup & 30.00 & 2.16 & 1.11 & 2.00 & 0.02 & 4.62 & 0.39 & -0.41 & 0.20 \\ 
+   \hline
+\end{tabular}
+\caption{Summary Statistics} 
+\label{sum_stat}
+\end{table}
+
+Based on the descriptive statistics in Table \ref{sum_stat}, **average therapy sessions** is 5 (\pm{2.07}) with 0 being the minimum and 9 being the maximum. **Average number of fights** is 3 (\pm{2.52}) with a minimum of 0 and maximum of 12. Based on the Skew and Kurtosis values, if I go by the $<3.0$ and $<10.0$, I see that everything is pretty much fine in terms of Skew and Kurtosis except incompatibility. In the next few sections, I will work on the dataset to find normality issues and outliers, fix the issues and finalize the screening process. By the end, the after screening dataset will have the following properties summarized in Table \ref{sum_stat_final}. Variables `fights_repl` and `incompat_repl` replace the original fights and incompat variables. 
+
+```{r echo = F}
+#data_after <- data04 
+```
+
+```{r echo = F}
+#dscStat_after <- describe(data_after %>% select(-c(id, minmaxScaled_fights, minmaxScaled_incompat)), type = 2) %>% 
+#    select(c(n, mean, sd, median, min, max, skew, kurtosis, se))
+```
+
+```{r eval = F, echo = F}
+#dscStat_after
+```
+
+```{r echo = F, eval = F}
+#latex_code_final <- xtable(as.data.frame(dscStat_after), caption = "Summary Statistics - After Screening ", label = "sum_stat_final")
+#print(latex_code_final, include.rownames = TRUE)
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrrrrrrr}
+  \hline
+ & n & mean & sd & median & min & max & skew & kurtosis & se \\ 
+  \hline
+therapy & 30.00 & 5.11 & 2.07 & 4.89 & 0.00 & 9.79 & 0.18 & 0.60 & 0.38 \\ 
+  incompat & 30.00 & 27.80 & 29.86 & 21.00 & 6.00 & 144.00 & 3.19 & 10.31 & 5.45 \\ 
+  fights & 30.00 & 3.00 & 2.52 & 2.00 & 0.01 & 12.00 & 1.85 & 4.77 & 0.46 \\ 
+  breakup & 30.00 & 2.16 & 1.11 & 2.00 & 0.02 & 4.62 & 0.39 & -0.41 & 0.20 \\ 
+  log\_fights & 30.00 & 0.19 & 0.79 & 0.30 & -2.00 & 1.08 & -2.24 & 4.44 & 0.14 \\ 
+  log\_incompat & 30.00 & 1.32 & 0.31 & 1.32 & 0.78 & 2.16 & 0.87 & 1.67 & 0.06 \\ 
+  fights\_stdz & 30.00 & -0.00 & 1.00 & -0.37 & -1.44 & 2.86 & 0.96 & 1.18 & 0.18 \\ 
+  incompat\_stdz & 30.00 & -0.00 & 1.00 & -0.06 & -1.61 & 2.21 & 0.27 & -0.67 & 0.18 \\ 
+  fights\_repl & 30.00 & 2.68 & 1.86 & 2.00 & 0.01 & 8.00 & 0.96 & 1.18 & 0.34 \\ 
+  incompat\_repl & 30.00 & 20.31 & 8.90 & 19.81 & 6.00 & 40.00 & 0.27 & -0.67 & 1.63 \\ 
+   \hline
+\end{tabular}
+\caption{Summary Statistics - After Screening } 
+\label{sum_stat_final}
+\end{table}
+
+How did I reach this? Read on... 
+
+## Data Screening : Corrections 
+Things to check here are: 1. Missing Data : Are there any missing values? 
+```{r}
+sum(is.na(data))
+```
+No missing values.  
+
+### Transformations : Non-normal distributions 
+Distributions are assumed to be “univariate normal,” meaning they approximate a bell curve and have: |Skew| < 3.0 and |Kurtosis| < 10.0. To check the distribution of each column, I'll first visualize them: 
+```{r fig.align='center', fig.width=13, fig.height=8}
+p1 <- ggplot(data = data, aes(x = therapy)) + geom_histogram(bins = 10, color = 'red')
+p2 <- ggplot(data = data, aes(x = incompat)) + geom_histogram(bins = 150, color = 'blue')
+p3 <- ggplot(data = data, aes(x = fights)) + geom_histogram(bins = 15, color = 'green')
+p4 <- ggplot(data = data, aes(x = breakup)) + geom_histogram(bins = 5, color = 'white')
+
+fig <- ggarrange(p1, p2, p3, p4,
+                 labels = c("Therapy", "Incompatibility", "Fights", "BreakUp"),
+                 ncol = 2, nrow = 2)
+fig
+```
+
+None look perfectly normal (except breakup and somewhat therapy), but this is not how to test normality of a distribution. Using Q-Q Plot & a Statistical Test (Shapiro) with $H_0$ : Data follows a normal distribution ([reference](https://uedufy.com/normality-test-in-r-a-step-by-step-guide/#:~:text=One%20commonly%20used%20test%20is,data%20follow%20a%20normal%20distribution.&text=As%20with%20the%20previous%20examples,test()%20function)).  
+
+**Number of Therapy sessions**:
+```{r}
+qqnorm(data$therapy)
+qqline(data$therapy)
+```
+```{r}
+shapiro.test(data$therapy)
+```
+Can't reject $H_0$, which means we don't have enough evidence to suggest to reject the notion that the data follows a normal distribution. Meaning, It is probably normal. 
+
+**Number of Fights**:
+```{r}
+qqnorm(data$fights)
+qqline(data$fights)
+```
+
+```{r}
+shapiro.test(data$fights)
+```
+The p-value is quite small ($<.05$) so we reject the $H_0$ that the data follows a normal distribution. Thus, number of fights is not normal. 
+
+**Incompatibility**:
+```{r}
+qqnorm(data$incompat)
+qqline(data$incompat)
+```
+
+```{r}
+shapiro.test(data$incompat)
+```
+The p-value is quite small ($<.05$) so we reject the $H_0$ that the data follows a normal distribution. Thus, incompatibility is not normal. 
+
+**BreakUp Risk**:
+```{r}
+qqnorm(data$breakup)
+qqline(data$breakup)
+```
+
+```{r}
+shapiro.test(data$breakup)
+```
+Can't reject $H_0$, which means we don't have enough evidence to suggest to reject the notion that the data follows a normal distribution. Meaning, It is probably normal. 
+
+**Decision**:
+Number of Fights is not normal. Incompatibility is not normal.
+To fix this, I'll transform the data using a MinMaxScaling and log transformation. 
+Note that I will only need to fix the normality issues for fights and incompatibility. 
+The `preProcess()` function is from the `library(caret)`, which was loaded before (reference: https://www.digitalocean.com/community/tutorials/normalize-data-in-r).
+Making another copy of the data. 
+
+```{r echo = FALSE}
+data02 <- data
+```
+
+For log transforms, I'll have to make sure there are no 0's in the fights and incompatibility. So, I'll just replace 0 with 0.01: 
+```{r}
+data02 <- data02 %>% 
+    mutate(
+        fights = if_else(
+            fights == 0,
+            0.01,
+            fights
+        ), 
+        incompat = if_else(
+            incompat == 0,
+            0.01,
+            incompat
+        )
+        
+    )
+
+data02 <- data02 %>% 
+    mutate(
+        minmaxScaled_fights = predict(preProcess(as.data.frame(data02$fights), 
+                                                 method = c("range")), as.data.frame(data02$fights))[,1],
+        minmaxScaled_incompat = predict(preProcess(as.data.frame(data02$incompat), 
+                                                 method = c('range')), as.data.frame(data02$incompat))[,1],
+        log_fights = round(log(fights, base = 10), 3),
+        log_incompat = round(log(incompat, base = 10), 3)
+    )
+```
+
+```{r echo = F, eval = F}
+head(data02)
+```
+
+Descriptive statistics: 
+```{r}
+dscStat2 <- describe(data02 %>% select(-c(id, therapy, breakup)), type = 2) %>% select(c(vars, n, mean, sd, min, max, skew, kurtosis, se))
+```
+
+```{r echo = F, eval = F}
+dscStat2
+```
+
+```{r echo = F, eval = F}
+latex_code2 <- xtable(as.data.frame(dscStat2), caption = "Summary Statistics with MinMax and Log Scaled", label = "sum_stat2")
+print(latex_code2, include.rownames = TRUE)
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrrrrrrr}
+  \hline
+ & vars & n & mean & sd & min & max & skew & kurtosis & se \\ 
+  \hline
+incompat &   1 & 30.00 & 27.80 & 29.86 & 6.00 & 144.00 & 3.19 & 10.31 & 5.45 \\ 
+  fights &   2 & 30.00 & 3.00 & 2.52 & 0.01 & 12.00 & 1.85 & 4.77 & 0.46 \\ 
+  minmaxScaled\_fights &   3 & 30.00 & 0.25 & 0.21 & 0.00 & 1.00 & 1.85 & 4.77 & 0.04 \\ 
+  minmaxScaled\_incompat &   4 & 30.00 & 0.16 & 0.22 & 0.00 & 1.00 & 3.19 & 10.31 & 0.04 \\ 
+  log\_fights &   5 & 30.00 & 0.19 & 0.79 & -2.00 & 1.08 & -2.24 & 4.44 & 0.14 \\ 
+  log\_incompat &   6 & 30.00 & 1.32 & 0.31 & 0.78 & 2.16 & 0.87 & 1.67 & 0.06 \\ 
+   \hline
+\end{tabular}
+\caption{Summary Statistics with MinMax and Log Scaled} 
+\label{sum_stat2}
+\end{table}
+
+It seems that the log transformation fixed the Skew and Kurtosis issue, but min-max didn't. 
+Now I'll check the normality for the scaled versions: 
+```{r}
+ggplot(data = data02, aes(x = log_incompat)) + geom_histogram(bins = 5, color = 'blue')
+```
+
+```{r echo = F}
+qqnorm(data02$log_incompat)
+qqline(data02$log_incompat)
+```
+
+```{r echo = F}
+shapiro.test(data02$log_incompat)
+```
+
+
+```{r}
+ggplot(data = data02, aes(x = log_fights)) + geom_histogram(bins = 10, color = 'white')
+```
+
+
+```{r echo = F}
+qqnorm(data02$log_fights)
+qqline(data02$log_fights)
+```
+
+```{r echo = F}
+shapiro.test(data02$log_fights)
+```
+
+```{r echo = F}
+qqnorm(data02$minmaxScaled_incompat)
+qqline(data02$minmaxScaled_incompat)
+```
+
+```{r echo = F}
+shapiro.test(data02$minmaxScaled_incompat)
+```
+
+```{r echo = F}
+qqnorm(data02$minmaxScaled_fights)
+qqline(data02$minmaxScaled_fights)
+```
+
+```{r echo = F}
+shapiro.test(data02$minmaxScaled_fights)
+```
+
+### Finding Outliers : Univariate 
+To find the univariate outliers, I'll check the standarized values to see if any values fall outside of 3 std's on either side of the mean. 
+```{r}
+data03 <- data02 
+```
+
+```{r}
+data03 <- data03 %>% 
+    mutate(
+        fights_stdz = scale(data03$fights),
+        incompat_stdz = scale(data03$incompat)
+    )
+```
+
+```{r}
+dscStat3 <- describe(data03 %>% select(fights_stdz, incompat_stdz), type = 2) %>% 
+            select(c(vars, n, mean, sd, min, max, skew, kurtosis, se))
+```
+
+```{r echo = F, eval = F}
+latex_code3 <- xtable(as.data.frame(dscStat3), caption = "Summary Statistics with Standardized variables", label = "sum_stat3")
+print(latex_code3, include.rownames = TRUE)
+```
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrrrrrrr}
+  \hline
+ & vars & n & mean & sd & min & max & skew & kurtosis & se \\ 
+  \hline
+fights\_stdz &   1 & 30.00 & 0.00 & 1.00 & -1.19 & 3.57 & 1.85 & 4.77 & 0.18 \\ 
+  incompat\_stdz &   2 & 30.00 & 0.00 & 1.00 & -0.73 & 3.89 & 3.19 & 10.31 & 0.18 \\ 
+   \hline
+\end{tabular}
+\caption{Summary Statistics with Standardized variables} 
+\label{sum_stat3}
+\end{table}
+
+Yes, both fights and incompatibility have things that fall outside of 3 standard deviations from the mean (higher). 
+**What to do?** Let's find the records that are causing this issue: 
+```{r}
+outliers_1 <- data03 %>% select(-c(minmaxScaled_fights, minmaxScaled_incompat)) %>% 
+    filter(fights_stdz < -3.0 | fights_stdz > 3.0 | incompat_stdz > 3.0 | incompat_stdz < -3.0)
+```
+
+```{r}
+outliers_1
+```
+These records (8, 11, 29) are the ones causing the problems. Record 29 has been to therapy less than 3 times, but their fights number is 12! Records 8 and 11 have been to therapy over 8 times each, but their incompatibility scores are high. To fix these issues, I can replace the values for each. So for record 29, I'll replace their number of fights with the median number of fights (or the mean of the others) or try to find the best value to replace it with using the other columns (sort of like predicting linear regression --- but I guess that is too advanced, so I'll stick with using the average of the rest). For records 8 and 11, I'll replace the incompatibility score with the average. 
+
+```{r}
+data_wout_outliers <- data03 %>% filter(fights_stdz >= -3.0 & fights_stdz <= 3.0 & incompat_stdz <= 3.0 & incompat_stdz >= -3.0) 
+avg_num_fights_ofRest <- mean(data_wout_outliers$fights)
+avg_incompat_ofRest <- mean(data_wout_outliers$incompat)
+avg_num_fights_ofRest
+avg_incompat_ofRest
+```
+
+Replacements: 
+```{r echo = F}
+data04 <- data03
+```
+
+```{r}
+data04 <- data04 %>% 
+    mutate(
+        fights_repl = case_when(
+            id == 29 ~ avg_num_fights_ofRest,
+            .default = fights
+        ),
+        
+        incompat_repl = case_when(
+            id == 11 ~ avg_incompat_ofRest,
+            id == 8 ~ avg_incompat_ofRest,
+            .default = incompat
+        )
+    )
+```
+
+```{r}
+#replace the standarized versions
+data04 <- data04 %>% 
+    mutate(
+        fights_stdz = scale(fights_repl),
+        incompat_stdz = scale(incompat_repl)
+    )
+```
+
+```{r}
+dscStat4 <- describe(data04 %>% select(fights_stdz, incompat_stdz, fights_repl, incompat_repl), type = 2) %>% 
+            select(c(vars, n, mean, sd, min, max, skew, kurtosis, se))
+```
+
+```{r echo = F, eval = F}
+dscStat4
+```
+
+```{r echo = F, eval = F}
+latex_code4 <- xtable(as.data.frame(dscStat4), caption = "Summary Statistics with Replaced Outliers", label = "sum_stat4")
+print(latex_code4, include.rownames = TRUE)
+```
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrrrrrrrr}
+  \hline
+ & vars & n & mean & sd & min & max & skew & kurtosis & se \\ 
+  \hline
+fights\_stdz &   1 & 30.00 & -0.00 & 1.00 & -1.44 & 2.86 & 0.96 & 1.18 & 0.18 \\ 
+  incompat\_stdz &   2 & 30.00 & -0.00 & 1.00 & -1.61 & 2.21 & 0.27 & -0.67 & 0.18 \\ 
+  fights\_repl &   3 & 30.00 & 2.68 & 1.86 & 0.01 & 8.00 & 0.96 & 1.18 & 0.34 \\ 
+  incompat\_repl &   4 & 30.00 & 20.31 & 8.90 & 6.00 & 40.00 & 0.27 & -0.67 & 1.63 \\ 
+   \hline
+\end{tabular}
+\caption{Summary Statistics with Replaced Outliers} 
+\label{sum_stat4}
+\end{table}
+
+### Finding Outliers : Multi-variate 
+Calculating the Mahanalobis’ distance for each of the observations. Firstly, the data copy is from the first version (original) dataset becuase you cannot have multicollinearity --- as you're calculating the covariance matrix. Therefore, none of the previously made new columns are added. I'll use the original data. The code for calculating the Mahanalobis distance uses reference from [here](https://www.r-bloggers.com/2021/08/how-to-calculate-mahalanobis-distance-in-r/). 
+
+```{r echo = FALSE}
+data05 <- data
+```
+
+```{r}
+data05 <- data05 %>% 
+    mutate(
+        mah_dist = mahalanobis(data05, colMeans(data05), cov(data05))
+    )
+```
+
+```{r}
+head(data05$mah_dist)
+```
+These are the first 6 Mahanalobis’ distances. Now, I will calculate the p-value for the $\chi^2$ statistics of the distances with $k - 1$ degrees of freedom where $k$ is the number of predictors. Since we have 4, $k = 4$. Really small p-values are considered outliers. The cutoff value is calculated as the $\chi^2$ with $df = k, p =.001$. To find a critical $\chi^2$ value, we use `qchisq()` ([reference](https://www.scribbr.com/frequently-asked-questions/chi-square-critical-value-in-r/)). 
+
+```{r}
+chi_sqrd_cutoff <- qchisq(p = 0.001, df = 4)
+chi_sqrd_cutoff
+```
+The cutoff can be used to choose the outliers. Additionally, I'll also use p-values: 
+```{r}
+data05 <- data05 %>% 
+    mutate(
+        p_vals_mah_dist = pchisq(mah_dist, df = 3)
+    )
+    
+```
+
+```{r}
+head(data05)
+```
+
+Now, finding the outliers: 
+```{r}
+#based on p-values 
+data05 %>% filter(p_vals_mah_dist < 0.001)
+```
+
+```{r}
+#based on Chi-Squared cutoff 
+data05 %>% filter(mah_dist < chi_sqrd_cutoff)
+```
+
+Which means there are no multivariate outliers in the data. Thus, the cleaned dataset is going to be `data04`. 
+```{r echo = F}
+data_after <- data04 
+```
+
+Looking at a comparative figure we have: 
+```{r fig.align='center', fig.width=13, fig.height=8}
+options(repr.plot.width = 13, repr.plot.height = 8)
+
+pf_before <- ggplot(data = data, aes(x = fights)) + geom_histogram(aes(y = ..density..), bins = 15, color = 'purple') + stat_function(fun = dnorm, args = list(mean = mean(data$fights), sd = sd(data$fights)))
+pf_after <- ggplot(data = data_after, aes(x = fights_repl)) + geom_histogram(aes(y = ..density..), bins = 15, color = 'orange') + stat_function(fun = dnorm, args = list(mean = mean(data_after$fights_repl), sd = sd(data_after$fights_repl))) + xlab("fights") 
+
+pi_before <- ggplot(data = data, aes(x = incompat)) + geom_histogram(aes(y = ..density..), bins = 150, color = 'darkgreen') + stat_function(fun = dnorm, args = list(mean = mean(data$incompat), sd = sd(data$incompat)))
+pi_after <- ggplot(data = data_after, aes(x = incompat_repl)) + geom_histogram(aes(y = ..density..), bins = 150, color = 'darkblue') + stat_function(fun = dnorm, args = list(mean = mean(data_after$incompat_repl), sd = sd(data_after$incompat_repl))) + xlab("incompat")
+
+
+fig0 <- ggarrange(pf_before, pf_after, pi_before, pi_after,
+                 labels = c("Before", "After", "Before", "After"),
+                 ncol = 2, nrow = 2)
+fig0
+```
+

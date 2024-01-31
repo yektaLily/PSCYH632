@@ -1,0 +1,283 @@
+---
+title: ""
+author: "Yekta Amirkhalili"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    number_section: no
+    
+documentclass: report
+#bibliography: mybib.bib
+---
+
+```{r envSetup, include = FALSE, echo = FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    message = FALSE,
+    warning = FALSE,
+    out.width = "65%",
+    fig.align = "center",
+    comment = ">"
+    )
+```
+
+```{r}
+#library(tidyverse)
+library(corrr)
+library(psych)
+library(lavaan)
+#library(kableExtra)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(survey)
+library(haven)
+library(rempsyc)
+library(broom)
+library(report)
+library(effectsize)
+library(aod)
+library(readr)
+library(tidymodels)
+library(stargazer)
+library(forcats)
+library(ggcorrplot)
+library(caret)
+library(knitr)
+library(ROCR)
+library(jtools)
+#=library(car)
+library(xtable)
+#library(texreg)
+#library(svyVGAM)
+library(glmnet)
+library(ggpubr)
+library(foreign)
+library(AER)
+```
+
+
+## Load & Understand Data 
+The `library(foreign)` command is used to read `.sav` data files ([reference](https://help.displayr.com/hc/en-us/articles/360003582155-How-to-Import-SPSS-Data-Sets-Using-R)). 
+```{r}
+data <- suppressWarnings(read.spss(
+    'P632_DA1_Data_W24.sav',
+    use.value.labels = TRUE,
+    to.data.frame = TRUE
+    
+))
+```
+
+```{r}
+glimpse(data)
+```
+### Screen 
+```{r}
+#remove couple 15 and 29 
+#log transform incompatibiliy
+
+data <- data %>% 
+    filter(id != 15 & id != 29) %>% 
+    mutate(
+        #making sure nothing is 0 (for log transform)
+        incompat = if_else(
+            incompat == 0,
+            0.001,
+            incompat
+        ),
+        
+        log_incompat = log(incompat)
+    )
+    
+```
+
+```{r}
+glimpse(data)
+```
+
+## Bivariate Regression 
+```{r}
+y <- data$breakup
+
+#each of our independent variables 
+counseling <- data$therapy
+incomp <- data$log_incompat
+fight <- data$fights
+
+```
+
+
+```{r}
+m1 <- lm(breakup ~ therapy, data = data)
+
+summ(m1, digits = 3)
+```
+```{r}
+summ(m1, scale = T)
+```
+
+
+```{r}
+output_m1 <- capture.output(summ(m1))
+
+f_m1 <- output_m1[7]
+r2_m1 <- output_m1[8]
+adjR2_m1 <- output_m1[9]
+```
+
+```{r}
+m1_res <- summ(
+    m1,
+    scale = F, #Reports standardized regression coefficients by scaling and mean-centering input data 
+    digits = 3,
+    pvals = TRUE,
+    vifs = F, #VIF values 
+)
+
+xtab1 <- xtable(m1_res$coeftable, caption = NULL, label = NULL)
+print(xtab1)
+```
+
+```{r}
+f <- c(f_m1, f_m2, f_m3, f_m4)
+r2 <- c(r2_m1, r2_m2, r2_m3, r2_m4)
+adr2 <- c(adjR2_m1, adjR2_m2, adjR2_m3, adjR2_m4)
+```
+
+
+I decided since it's only 4 models, I'll just input them into \LaTeX by hand! 
+
+```{r}
+m2 <- lm(breakup ~ fights, data = data)
+
+summ(m2, digits = 3)
+```
+
+```{r}
+summ(m2, scale = T)
+``` 
+
+
+```{r}
+m3 <- lm(breakup ~ log_incompat, data = data)
+
+summ(m3, digits = 3)
+```
+```{r}
+summ(m3, scale = T)
+```
+
+```{r}
+m4 <- lm(breakup ~ therapy + fights + log_incompat, data = data)
+
+summ(m4, digits = 3, vifs = T)
+```
+
+```{r}
+summ(m4, scale = T)
+```
+
+```{r}
+cor(data$fights, data$therapy)
+```
+
+```{r}
+cor(data$breakup, data$therapy)
+```
+
+```{r}
+cor(data$breakup, data$fights)
+```
+```{r}
+cor(data$breakup, data$fights) * cor(data$fights, data$therapy)
+```
+
+```{r}
+summary(lm(fights ~ therapy - , data = data))
+```
+$$ therapy = 3.2361 + 0.8521 fights $$
+$$ fights = 0.48546 \times therapy $$
+
+```{r}
+m5 <- lm(breakup ~ log_incompat + therapy + therapy:fights, data = data)
+
+summ(m5, digits = 2, scaled = F, vifs = T)
+```
+```{r}
+m6 <- lm(breakup ~ therapy:fights + log_incompat, data = data)
+
+summ(m6, digits = 2, scaled = T, vifs = T)
+```
+
+```{r}
+m7 <- lm(breakup ~ therapy + log_incompat , data = data)
+
+summ(m7, digits = 2, scaled = T, vifs = T)
+```
+
+
+```{r}
+getR <- function(capture_){
+    # Your input string
+    input_string <- capture_
+    
+    # Extract the numeric value using regular expressions
+    numeric_value <- as.numeric(gsub(".*Multiple R-squared:\\s*([0-9.]+).*", "\\1", input_string))
+    
+    # Print the result
+    return(numeric_value)
+}
+
+```
+
+```{r}
+capture.output(summary(lm(breakup ~ fights + log_incompat, data = data)))
+```
+
+## Venn Diagram 
+```{r}
+#total_area <- getR(capture.output(summary(lm(breakup ~ therapy + fights + log_incompat, data = data)))[19])
+r_all <- round(getR(capture.output(summary(lm(breakup ~ fights + log_incompat, data = data)))[18]), 3)
+r_fight <- round(getR(capture.output(summary(lm(breakup ~ fights, data = data)))[17]),3)
+r_log <- round(getR(capture.output(summary(lm(breakup ~ log_incompat, data = data)))[17]), 3)
+
+
+fight_only <- r_all - r_log 
+incomp_only <- r_all - r_fight 
+union_area <- r_all - fight_only - incomp_only
+
+```
+
+```{r}
+print(paste("Total area: ", r_all))
+print(paste("Only fight area: (c) ", fight_only))
+print(paste("Only Incompat area: (b) ", incomp_only))
+print(paste("Union area: (a) ", union_area))
+```
+```{r}
+m4
+```
+
+## prediction 
+```{r}
+new_couple_therapy <- 5
+new_couple_incompat <- log(21)
+new_couple_fights <- 2 
+
+#pred_grid <- expand.grid(log_incompat = new_couple_incompat, therapy = new_couple_therapy, )
+predict(m4, data.frame(
+    therapy = new_couple_therapy,
+    log_incompat = new_couple_incompat,
+    fights = new_couple_fights
+))
+```
+```{r}
+1.642 - 1.52 + 1.594 + 0.043
+```
+
+
+
+
+
